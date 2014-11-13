@@ -1,0 +1,186 @@
+#!/usr/bin/env python
+import rospy, tf, math 
+from Queue import Queue
+from kobuki_msgs.msg import BumperEvent
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+# Add additional imports for each of the message types used
+
+#This function queues commands to execute the trajector defined in Lab 2
+def executeTrajectory():
+   	driveStraight(0.25, 0.6)
+	rotate(-math.pi/2)
+	driveArc(-0.15, 0.25, math.pi)
+	rotate(3*math.pi/4)
+	driveStraight(0.25, 0.42)
+
+
+##This function sets the turtle bot wheels to drive at the given velocieits
+#param u1: Right wheel velocity
+#param u2: Left wheel velocity
+#return: Nothing
+#notes: This function must be called at least once per second to maintain turtlebot speed, otherwise the wheels will stop
+def spinWheels(u1, u2):
+	global teleop_pub
+	#convert wheel speeds to robot velocity
+	u = (u1+u2)/2
+	omega = (u1-u2)/0.2286
+	#publish velocity twist message to drive the turtlebot
+	twist_msg = Twist()
+	twist_msg.linear.x = u
+	twist_msg.linear.y = 0
+	twist_msg.linear.z = 0
+	twist_msg.angular.x = 0
+	twist_msg.angular.y = 0
+	twist_msg.angular.z = omega
+	teleop_pub.publish(twist_msg)
+
+
+##Enqueues a command to drive the robot straight at a given speed for a given distance
+#param speed: Speed to drive straight at in meters per second(max ~0.5)
+#param distance: Distance to drive in meters
+#returns: Nothing 
+def driveStraight(speed, distance):
+    	global actionqueue
+	actionqueue.put((speed, speed, distance, 0))    
+
+    
+##Enqueues a command to rotate the robot in place through a given angle
+#param angle: Angle to rotate through in radians (positive angles rotate counter-clockwise, negative angles rotate clockwise)
+#returns: nothing
+#note: Will rotate at ~2 radians per second
+def rotate(angle):
+    	global actionqueue
+	if angle > 0:
+		actionqueue.put((0.25, -0.25, 0, angle))
+	else:
+		actionqueue.put((-0.25, 0.25, 0, angle))
+
+
+##Enqueues a command to drive the robot in an arc with the given radius and speed through a given angle
+#param radius: Radius of arc to drive through
+#param speed: Speed to drive at
+#param angle: Angle of arc to drive through
+#returns: Nothing
+def driveArc(radius, speed, angle):
+ 	global actionqueue
+	actionqueue.put((speed+(speed*0.2286/(2*radius)), speed-(speed*0.2286/(2*radius)), 0, angle))
+	
+
+
+
+##Turtlebot odometry callback, this function executes the queue of driving commands
+#param msg: nav_msgs/Odometry messag provided by the turtlbot base node
+#returns: Nothing
+#notes: This should be called at 50Hz
+def read_odometry(msg): 
+	global standby
+	global actionqueue
+	global deltaAng
+	global deltaDist
+	global action
+	global lastX
+	global lastY
+	global lastTh
+        #standby is set to 1 when a command completes
+	if standby:
+		#wait until a new command is available
+		if not actionqueue.empty():
+			#setup command
+			standby = 0
+			action = actionqueue.get()
+			deltaDist = 0
+			deltaAng = 0
+			#pull current robot position and orientation
+			lastX = msg.pose.pose.position.x
+			lastY = msg.pose.pose.position.y
+			lastTh = 2*math.asin(msg.pose.pose.orientation.z)
+			print 'Run command: ',  action
+	else: #command is executing 
+		#calculate distance and angle deltas
+		deltaX = msg.pose.pose.position.x - lastX
+		deltaY = msg.pose.pose.position.y - lastY
+		currTh = 2*math.asin(msg.pose.pose.orientation.z) 
+		#odometry measures angle from -PI to PI and loops around, make sure that jump doesn't mess up our delta
+		if (currTh/math.fabs(currTh) == lastTh/math.fabs(lastTh)): 
+			deltaTh = currTh - lastTh
+		else:
+			deltaTh = 0
+		deltaDist = deltaDist + math.sqrt(deltaX*deltaX + deltaY*deltaY)
+		deltaAng = deltaAng + deltaTh
+		lastX = msg.pose.pose.position.x
+		lastY = msg.pose.pose.position.y
+		lastTh = 2*math.asin(msg.pose.pose.orientation.z)
+		print deltaTh, ' ', deltaAng
+		#maintain command's wheel speeds
+		spinWheels(action[0], action[1], 0)
+		#wait for desired distance or angle delta
+		if (action[3] == 0 and deltaDist >= action[2]) or (action[2] == 0 and math.fabs(deltaAng) >= math.fabs(action[3])):
+			
+spinWheels(0,0,0)
+				standby = 1
+			print 'Command done'
+	
+	
+  
+
+
+#Bumper Event Callback function
+def readBumper(msg):
+    if (msg.state == 1):
+	executeTrajectory()
+
+
+# (Optional) If you need something to happen repeatedly at a fixed interval, write the code here.
+# Start the timer with the following line of code: 
+#   rospy.Timer(rospy.Duration(.01), timerCallback)
+def timerCallback(event):
+    pass # Delete this 'pass' once implemented
+
+
+
+
+
+
+
+
+
+# This is the program's main function
+if __name__ == '__main__':
+    # Change this node name to include your username
+    rospy.init_node('sample_Lab_2_node')
+
+
+    # These are global variables. Write "global <variable_name>" in any other function
+    #  to gain access to these global variables
+    
+    global teleop_pub
+    global pose
+    global odom_tf
+    global odom_list
+    global standby
+    global actionqueue
+    global lastTh
+    lastTh = 0
+    standby = 1
+    actionqueue = Queue()
+
+    # Replace the elipses '...' in the following lines to set up the publishers and subscribers the lab requires
+    teleop_pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist) # Publisher for commanding robot motion
+    odom_sub = rospy.Subscriber('/odom', Odometry, read_odometry, queue_size=1) # Callback function to read in robot Odometry messages
+    bumper_sub = rospy.Subscriber('/mobile_base/events/bumper', BumperEvent, readBumper, queue_size=1) # Callback function to handle bumper events
+
+    # Use this object to get the robot's Odometry 
+    odom_list = tf.TransformListener()
+    
+    # Use this command to make the program wait for some seconds
+    rospy.sleep(rospy.Duration(1, 0))
+
+ 
+
+    print "Starting Lab 2"
+	
+    while not rospy.is_shutdown():
+	pass
+
+    print "Lab 2 complete!"
