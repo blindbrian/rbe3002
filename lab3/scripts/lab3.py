@@ -4,6 +4,7 @@ import rospy, math
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import GridCells
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 
