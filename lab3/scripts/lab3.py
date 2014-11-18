@@ -9,7 +9,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Point
 
-#Callback for turtlebot mapping messages
+#Callback for map messages
 #param msg: Income message of type nav_msgs/OccupancyGrid
 #returns: nothing
 def mapCallback(msg):
@@ -17,33 +17,41 @@ def mapCallback(msg):
 	global regen_map
 	global has_map
 	print 'Got new map, regenrating path'
+	#set global map
 	map = msg
+	#trigger A* path regeneration
 	regen_map = 1
+	#indicate that we have received a map
 	has_map = 1
 	
-#Callback for PoseWithCovarianceStamped
+#Callback for start point messages
 #param msg: Income message of type geometry_msgs/PoseWithCovarianceStamped
 #returns: nothing
 def newStartCallback(msg):
 	global startpos
 	global regen_map
 	global start_pub
-	global has_start	
+	global has_start
+	#extract point from message
 	point = msg.pose.pose.position
 	print 'Got new starting position, regenerating path'
+	#round point values to nearest integer
 	startpos = Point(round(point.x,0),round(point.y,0),0)
 	print "x: ", startpos.x
 	print "y: ", startpos.y
+	#send rounded start point as a GridCells message to /lab3/astar/start
 	start = GridCells()
 	start.cell_width = 1
 	start.cell_height = 1
 	start.cells = [startpos]
 	start.header.frame_id = 'map'
 	start_pub.publish(start)
+	#trigger A* path regeneration
 	regen_map = 1
+	#indicate that we have receive a start position
 	has_start = 1
 
-#Callback for PoseStamped
+#Callback for goal point messages
 #param msg: Income message of type geometry_msgs/PoseStamped
 #returns: nothing
 def newGoalCallback(msg):
@@ -51,39 +59,61 @@ def newGoalCallback(msg):
 	global regen_msg
 	global goal_pub	
 	global has_goal	
+	#extract point from message
 	point = msg.pose.position
 	print 'Got new gloal position, regenerating map'
+	#round point values to nearest integer
 	endpos = Point(round(point.x,0),round(point.y,0),0)
 	print "x: ", endpos.x
 	print "y: ", endpos.y	
+	#send rounded goal point as a GridCells message to /lab3/astar/goal
 	end = GridCells()
 	end.cell_width = 1
 	end.cell_height = 1
 	end.cells = [endpos]
 	end.header.frame_id = 'map'
 	goal_pub.publish(end)
+	#trigger A* path regeneration
 	regen_map = 1
+	#indicate that we have received a goal position
 	has_goal = 1
     
-
+#A* Heursitic function
+#param p1: current position
+#param p2: goal position
+#returns: distance between p1 and p2
 def heuristic(p1, p2):
 	return math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2)
 	
+#Find the path from start to goal given the parents array from A*
+#param goal: goal position
+#param parents: Map of each point to its parent in the path A* found
+#param start: start position
+#param width: width of map (for normalizing points)
+#returns: nothing
 def generatePath(goal, parents, start, width):
 	global path_pub
+	#Create GridCells() message to display path in rviz
 	path = GridCells()
 	path.cell_width = 1
 	path.cell_height = 1
 	path.header.frame_id = 'map'
+	#Create a list of cells starting with the start position
 	cells = [start]
+	#trace path from goal back to start
 	current = goal
 	while current != start:
 	    cells.append(current)
 	    current = parents[normalize(current, width)]
 	path.cells = cells
-	rospy.sleep(0.25)
 	path_pub.publish(path)
-	
+
+#Generates a list of neighbors for a given point
+#param current: current point
+#param width: width of the map
+#param heigh: height of the map
+#param astarmap: the actual map
+#returns: a list of unoccupied neighboring points
 def neighbors(current, width, height, astarmap):
 	n = list()
 	if current.x > 0 and astarmap[int(round(current.y*width + current.x-1))] < 50:
@@ -96,6 +126,9 @@ def neighbors(current, width, height, astarmap):
 		n.append(Point(current.x, current.y+1, 0))
 	return n
 
+#Get the lowest f_score point in the given list
+#param openset: list of 2-tuples (f_score, point)
+#returns: the tuple in openset with the lowest f_score
 def getLowest(openset):
 	tup = openset[0]
 	lowest = tup[0] 
@@ -105,6 +138,10 @@ def getLowest(openset):
 			tup = x
 	return tup
 
+#Converts a point into an single integer given the width of the map
+#param point: point to convert
+#param width: width of the map the point is on
+#return: An integer representation of the point for use as a dictionary key
 def normalize(point, width):
 	return int(round(point.y*width+point.x))
 
@@ -113,7 +150,7 @@ if __name__ == '__main__':
 	#initialize ros nod
 	rospy.init_node('lab3')
 
-
+	#setup globals
 	global map
 	global startpos
 	global endpos
@@ -145,15 +182,21 @@ if __name__ == '__main__':
 	poseco_sub = rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, newStartCallback, queue_size=10)
 	pose_sub = rospy.Subscriber('/move_base_simple/goal', PoseStamped, newGoalCallback, queue_size=10)
 
+	#setup complete
 	print 'Lab3 node setup complete, waiting for map, start and goal'
 
+	#wait to receive a map, start point and goal point
 	while not (has_map and has_start and has_goal):
 		pass
 	
+	#trigger first path generation
 	regen_map = 1
 	print 'All data received, starting map generation'
+	#loop until shutdown
 	while not rospy.is_shutdown():
+		#if path needs regeneration
 		if regen_map:
+			#run A*
 			print 'Running A*'
 			path = GridCells()
 			path.cell_width = 1
