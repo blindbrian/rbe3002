@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #RBE 3002 Lab 3
 #Authors: Brian Eccles, Adria Fung, Prateek Sahay
 import rospy, math
