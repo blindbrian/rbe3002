@@ -1,20 +1,12 @@
 #RBE 3002 Lab 3
-#Authors: Brian Eccles, Adria Fung
+#Authors: Brian Eccles, Adria Fung, Prateek Sahay
 import rospy, math
 from Queue import PriorityQueue
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import GridCells
+from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
-
-#Callback for turtlebot odometry messages
-#param msg: Incoming message of type nav_msgs/Odometry
-#returns: nothing
-def odometryCallback(msg):
-	print msg
 
 #Callback for turtlebot mapping messages
 #param msg: Income message of type nav_msgs/OccupancyGrid
@@ -32,37 +24,70 @@ def mapCallback(msg):
 def posecovarianceCallback(msg):
 	global startpos
 	global regen_map
+	global start_pub
 	print 'Got new starting position, regenerating path'
 	print "x: ", msg.point.x
 	print "y: ", msg.point.y
 	startpos = msg.point
 	regen_map = 1
+	start = GridCells()
+	start.cell_width = 0.2
+	start.cell_height = 0.2
+	start.cells = [endpos]
+	goal_pub.publish(start)
 
 #Callback for PoseStamped
 #param msg: Income message of type geometry_msgs/PoseStamped
 #returns: nothing
 def posecovarianceCallback(msg):
 	global endpos
-	global regen_map
+	global regen_msg
+	global goal_pub	
 	print 'Got new gloal position, regenerating map'
 	print "x: ", msg.point.x
 	print "y: ", msg.point.y
 	endpos = msg.point
 	regen_map = 1
+	start = GridCells()
+	start.cell_width = 0.2
+	start.cell_height = 0.2
+	start.cells = [endpos]
+	goal_pub.publish(start)
+    
 
-def heuristic(p1, p2)
+def heuristic(p1, p2):
 	return math.sqrt(p1*p1+p2*p2)
 	
-def generatePath(goal, parents)
+def generatePath(goal, parents, start):
 	global path_pub
 	path = Path()
+	current = goal
+	while current != start
+	    pose = PoseStamped()
+	    pose.point = current
+	    path.append(pose)
+	    current = parents[current]
+	pose = PoseStamped()
+	pose.point = start
+	path.append(pose)
 	path_pub.publish(path)
 	
-def neighbors(current, width, height)
+def neighbors(current, width, height, astarmap):
+    n = list()
+    if (current.x > 0 and astarmap[current.y*width + current.x] < 50):
+        n.append(Point(x-1, y))
+    if (current.x <= width and astarmap[current.y*width + current.x] < 50):
+        n.append(Point(x+1), y))
+    if (current.y > 0 and astarmap[current.y*width + current.x] < 50):
+        n.append(Point(x, y-1))
+    if (current.y <= height and astarmap[current.y*width + current.x] < 50):
+        n.append(Point(x, y+1))
+    return n
 	
 
 #Main Function
 if __name__ == '__main__':
+    print 'HI WILCOX'
 	#initialize ros nod
 	rospy.init_node('lab3')
 	
@@ -70,16 +95,18 @@ if __name__ == '__main__':
 	global visited_pub
 	global frontier_pub
 	global path_pub
+	global start_pub
+	global goal_pub
 	visited_pub = rospy.Publisher('/lab3/astar/visited', GridCells)
 	frontier_pub = rospy.Publisher('/lab3/astar/fringe', GridCells)
 	path_pub = rospy.Publisher('/lab3/astar/path', Path)
+	start_pub = rospy.Publisher('/lab3/astar/start', GridCells)
+	goal_pub = rospy.Publisher('/lab3/astar/goal', GridCells)
 	
 	#Subscribers
-	global odom_sub
 	global map_sub
 	global poseco_sub
 	global pose_sub
-	odom_sub = rospy.Subscriber('/odom', Odometry, odometryCallback, queue_size=10)
 	map_sub = rospy.Subscriber('/map', OccupancyGrid, mapCallback, queue_size=10)
 	poseco_sub = rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, posecovarianceCallback, queue_size=10)
 	pose_sub = rospy.Subscriber('/move_base_simple/goal', OccupancyGrid, poseCallback, queue_size=10)
@@ -90,11 +117,15 @@ if __name__ == '__main__':
 	global startpos
 	global endpos
 	global regen_map
+	regen_map = 0
+	startpos = Point(0,0)
+	endpos = Point(0,0)
 	
 	
 	while not rospy.is_shutdown():
 		if regen_map:
-			start = startpos
+		    print 'Remake Map'
+			"""start = startpos
 			goal = endpos
 			astarmap = map.data
 			mapheight = map.info.height
@@ -112,10 +143,10 @@ if __name__ == '__main__':
 			while !openset.empty():
 				current = openset.get()
 				if current = goal:
-					generatePath(parents, goal)				
+					generatePath(parents, goal, start)		
 					break
 				closedset.append(current)
-				for n in neighbors(current, mapwidth, mapheight):
+				for n in neighbors(current, mapwidth, mapheight, astarmap):
 					c_g_score = g_score[current] + 1
 					c_f_score = c_g_score + heuristic(n, goal)
 					if n in closedset and c_f_score >= f_score[n]:
@@ -133,7 +164,7 @@ if __name__ == '__main__':
 				 fringe = GridCells()
 				 fringe.cell_height = res
 				 fringe.cell_width = res
-				 fringe.cells = openset
+				 fringe.cells = openset"""
 			print 'A* Done'
 		else:
 			pass

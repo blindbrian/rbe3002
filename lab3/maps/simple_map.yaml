@@ -1,4 +1,4 @@
-image: /home/bjeccles/catkin_ws/src/rbe3002/lab3/maps/simple_map.pgm
+image: ./simple_map.pgm
 resolution: 0.20000
 origin: [-3.100000, -3.100000, 0.000000]
 negate: 0
