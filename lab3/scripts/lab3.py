@@ -93,20 +93,38 @@ def heuristic(p1, p2):
 #returns: nothing
 def generatePath(goal, parents, start, width):
 	global path_pub
-	#Create GridCells() message to display path in rviz
+	global way_pub
+	#Create GridCells() message to display path and waypoints in rviz
 	path = GridCells()
 	path.cell_width = 1
 	path.cell_height = 1
 	path.header.frame_id = 'map'
+	way = GridCells()
+	way.cell_width = 1
+	way.cell_height = 1
+	way.header.frame_id = 'map'
+	waycells = [start]
 	#Create a list of cells starting with the start position
 	cells = [start]
 	#trace path from goal back to start
 	current = goal
+	last_ang = 0
+	ang = 0
+	lastpt = goal
 	while current != start:
 	    cells.append(current)
+	    #if we change travel direction, add a waypoint
+	    if (heuristic(lastpt,current) != 0):
+	    	ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
+	    if (abs(ang-last_ang) > 0.1):
+		waycells.append(lastpt)
+	    last_ang = ang
+	    lastpt = current
 	    current = parents[normalize(current, width)]
 	path.cells = cells
+	way.cells = waycells
 	path_pub.publish(path)
+	way_pub.publish(way)
 
 #Generates a list of neighbors for a given point
 #param current: current point
@@ -124,6 +142,14 @@ def neighbors(current, width, height, astarmap):
 		n.append(Point(current.x, current.y-1, 0))
 	if current.y <= height and astarmap[int(round((current.y+1)*width + current.x))] < 50:
 		n.append(Point(current.x, current.y+1, 0))
+	if current.y > 0 and current.x <= height and astarmap[int(round((current.y-1)*width + current.x+1))] < 50:
+		n.append(Point(current.x+1, current.y-1, 0))
+	if current.y <= height and current.x > 0 and astarmap[int(round((current.y+1)*width + current.x-1))] < 50:
+		n.append(Point(current.x-1, current.y+1, 0))
+	if current.y > 0 and current.x > 0 and astarmap[int(round((current.y-1)*width + current.x-1))] < 50:
+		n.append(Point(current.x-1, current.y-1, 0))
+	if current.y <= height and current.x <= height and astarmap[int(round((current.y+1)*width + current.x+1))] < 50:
+		n.append(Point(current.x+1, current.y+1, 0))
 	return n
 
 #Get the lowest f_score point in the given list
@@ -168,11 +194,13 @@ if __name__ == '__main__':
 	global path_pub
 	global start_pub
 	global goal_pub
+	global way_pub
 	visited_pub = rospy.Publisher('/lab3/astar/visited', GridCells)
 	frontier_pub = rospy.Publisher('/lab3/astar/fringe', GridCells)
 	path_pub = rospy.Publisher('/lab3/astar/path', GridCells)
 	start_pub = rospy.Publisher('/lab3/astar/start', GridCells)
 	goal_pub = rospy.Publisher('/lab3/astar/goal', GridCells)
+	way_pub = rospy.Publisher('/lab3/astar/way', GridCells)
 	
 	#Subscribers
 	global map_sub
@@ -196,7 +224,7 @@ if __name__ == '__main__':
 	while not rospy.is_shutdown():
 		#if path needs regeneration
 		if regen_map:
-			#run A*
+			#setup A* with the starting position on the fringe
 			print 'Running A*'
 			path = GridCells()
 			path.cell_width = 1
@@ -218,28 +246,36 @@ if __name__ == '__main__':
 			f_scores[normalize(start, mapwidth)] = heuristic(start, goal)
 			parents[normalize(start, mapwidth)] = None
 			openset.append((f_scores[normalize(start, mapwidth)], start))
-			while len(openset) > 0:
+			while len(openset) > 0: #continue until there is nothing left on the fringe
+				#find the position on the fringe with the lowest f_score and pull it off
 				current_tup = getLowest(openset)
 				openset.remove(current_tup)
 				current = current_tup[1]
+				#check if we've reached the goal
 				if current == goal:
 					generatePath(goal, parents, start, mapwidth)		
 					break
+				#mark current as visited
 				closedset.append(current)
+				#iterate through all neighbors of currrent
 				for n in neighbors(current, mapwidth, mapheight, astarmap):
-					c_g_score = g_scores[normalize(current, mapwidth)] + 1
+					#calculate each neighbors g and f score
+					c_g_score = g_scores[normalize(current, mapwidth)] + heuristic(current, n)
 					c_f_score = c_g_score + heuristic(n, goal)
+					#skip it if it has been visited and we havn't found a faster path
 					if n in closedset and c_f_score >= f_scores[normalize(n, mapwidth)]:
 						continue
-					if not n in (x[1] for x in openset):
+					if not n in (x[1] for x in openset): #if it hasn't been visited
+						#take down its g and f scores and parent, then add it to the fringe
 						parents[normalize(n, mapwidth)] = current
 						g_scores[normalize(n, mapwidth)] = c_g_score
 						f_scores[normalize(n, mapwidth)] = c_f_score
 						openset.append((c_f_score, n))
-					elif c_f_score < f_scores[normalize(n, mapwidth)]:
+					elif c_f_score < f_scores[normalize(n, mapwidth)]: #its already on the fringe and this path is faster, update its scores and parent
 						parents[normalize(n, mapwidth)] = current
 						g_scores[normalize(n, mapwidth)] = c_g_score
 						f_scores[normalize(n, mapwidth)] = c_f_score
+				#send visulaization data to rviz
 				visited = GridCells()
 				visited.cell_width = res
 				visited.cell_height = res
@@ -262,5 +298,6 @@ if __name__ == '__main__':
 			regen_map = 0
 		else:
 			pass
-
+	
+	#Exit Node
 	print 'Lab 3 node exiting'
