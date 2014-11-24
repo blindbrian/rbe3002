@@ -6,13 +6,15 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /Grid1
         - /RobotModel1
         - /Map1
         - /A* Fringe1
         - /A* Visited1
-        - /A* Start1
+        - /GridCells1
         - /A* Goal1
-        - /A* Path1
+        - /A* Start1
+        - /A* Waypoints1
       Splitter Ratio: 0.5
     Tree Height: 742
   - Class: rviz/Selection
@@ -41,7 +43,7 @@ Visualization Manager:
       Cell Size: 1
       Class: rviz/Grid
       Color: 160; 160; 164
-      Enabled: true
+      Enabled: false
       Line Style:
         Line Width: 0.03
         Value: Lines
@@ -52,9 +54,9 @@ Visualization Manager:
         Y: 0
         Z: 0
       Plane: XY
-      Plane Cell Count: 10
+      Plane Cell Count: 500
       Reference Frame: <Fixed Frame>
-      Value: true
+      Value: false
     - Alpha: 1
       Class: rviz/RobotModel
       Collision Enabled: false
@@ -95,10 +97,10 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz/GridCells
-      Color: 0; 0; 255
+      Color: 255; 255; 0
       Enabled: true
-      Name: A* Start
-      Topic: /lab3/astar/start
+      Name: GridCells
+      Topic: /lab3/astar/path
       Value: true
     - Alpha: 1
       Class: rviz/GridCells
@@ -108,12 +110,18 @@ Visualization Manager:
       Topic: /lab3/astar/goal
       Value: true
     - Alpha: 1
-      Buffer Length: 1
-      Class: rviz/Path
-      Color: 255; 255; 0
+      Class: rviz/GridCells
+      Color: 0; 0; 255
       Enabled: true
-      Name: A* Path
-      Topic: /lab3/astar/path
+      Name: A* Start
+      Topic: /lab3/astar/start
+      Value: true
+    - Alpha: 1
+      Class: rviz/GridCells
+      Color: 255; 170; 0
+      Enabled: true
+      Name: A* Waypoints
+      Topic: /lab3/astar/way
       Value: true
   Enabled: true
   Global Options:
@@ -147,11 +155,11 @@ Visualization Manager:
         Value: false
       Name: Current View
       Near Clip Distance: 0.01
-      Scale: 67.4886
+      Scale: 19.7382
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz)
-      X: 0
-      Y: 0
+      X: 21.7831
+      Y: 14.5804
     Saved: ~
 Window Geometry:
   Displays:
