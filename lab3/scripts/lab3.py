@@ -13,12 +13,12 @@ from geometry_msgs.msg import Point
 #param msg: Income message of type nav_msgs/OccupancyGrid
 #returns: nothing
 def mapCallback(msg):
-	global map
+	global curmap
 	global regen_map
 	global has_map
 	print 'Got new map, regenrating path'
 	#set global map
-	map = msg
+	curmap = msg
 	#trigger A* path regeneration
 	regen_map = 1
 	#indicate that we have received a map
@@ -36,13 +36,13 @@ def newStartCallback(msg):
 	point = msg.pose.pose.position
 	print 'Got new starting position, regenerating path'
 	#round point values to nearest integer
-	startpos = Point(round(point.x,0),round(point.y,0),0)
+	startpos = point;
 	print "x: ", startpos.x
 	print "y: ", startpos.y
 	#send rounded start point as a GridCells message to /lab3/astar/start
 	start = GridCells()
-	start.cell_width = 1
-	start.cell_height = 1
+	start.cell_width = 0.1
+	start.cell_height = 0.1
 	start.cells = [startpos]
 	start.header.frame_id = 'map'
 	start_pub.publish(start)
@@ -63,13 +63,13 @@ def newGoalCallback(msg):
 	point = msg.pose.position
 	print 'Got new gloal position, regenerating map'
 	#round point values to nearest integer
-	endpos = Point(round(point.x,0),round(point.y,0),0)
+	endpos = point; 
 	print "x: ", endpos.x
 	print "y: ", endpos.y	
 	#send rounded goal point as a GridCells message to /lab3/astar/goal
 	end = GridCells()
-	end.cell_width = 1
-	end.cell_height = 1
+	end.cell_width = 0.1
+	end.cell_height = 0.1
 	end.cells = [endpos]
 	end.header.frame_id = 'map'
 	goal_pub.publish(end)
@@ -94,14 +94,15 @@ def heuristic(p1, p2):
 def generatePath(goal, parents, start, width):
 	global path_pub
 	global way_pub
+	global curmap
 	#Create GridCells() message to display path and waypoints in rviz
 	path = GridCells()
-	path.cell_width = 1
-	path.cell_height = 1
+	path.cell_width = curmap.info.resolution
+	path.cell_height = curmap.info.resolution
 	path.header.frame_id = 'map'
 	way = GridCells()
-	way.cell_width = 1
-	way.cell_height = 1
+	way.cell_width = curmap.info.resolution
+	way.cell_height = curmap.info.resolution
 	way.header.frame_id = 'map'
 	waycells = [start]
 	#Create a list of cells starting with the start position
@@ -171,13 +172,21 @@ def getLowest(openset):
 def normalize(point, width):
 	return int(round(point.y*width+point.x))
 
+#takes a map and a floating point position in the world and returns the map cell the position is in	
+def worldToMapCell(curmap, point)
+	pass
+
+#takes a map cell and returns the center of the cell in world coordinates
+def mapToWorldPos(curmap, point)
+	pass
+
 #Main Function
 if __name__ == '__main__':
 	#initialize ros nod
 	rospy.init_node('lab3')
 
 	#setup globals
-	global map
+	global curmap
 	global startpos
 	global endpos
 	global regen_map
@@ -206,7 +215,7 @@ if __name__ == '__main__':
 	global map_sub
 	global poseco_sub
 	global pose_sub
-	map_sub = rospy.Subscriber('/map', OccupancyGrid, mapCallback, queue_size=10)
+	map_sub = rospy.Subscriber(rospy.get_param('map_input_topic', '/map'), OccupancyGrid, mapCallback, queue_size=10)
 	poseco_sub = rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, newStartCallback, queue_size=10)
 	pose_sub = rospy.Subscriber('/move_base_simple/goal', PoseStamped, newGoalCallback, queue_size=10)
 
@@ -233,10 +242,26 @@ if __name__ == '__main__':
 			path_pub.publish(path)
 			start = startpos
 			goal = endpos
-			astarmap = map.data
-			mapheight = map.info.height
-			mapwidth = map.info.width
-			res = map.info.resolution
+			astarmap = curmap.data
+			mapheight = curmap.info.height
+			mapwidth = curmap.info.width
+			res = curmap.info.resolution
+			start.x = round(start.x/res, 0)
+			start.y = round(start.y/res, 0)
+			goal.x = round(goal.x/res, 0)
+			goal.y = round(goal.y/res, 0)
+			startm = GridCells()
+			startm.cell_width = res
+			startm.cell_height = res
+			startm.cells = [start]
+			startm.header.frame_id = 'map'
+			start_pub.publish(start)
+			endm = GridCells()
+			endm.cell_width = res
+			endm.cell_height = res
+			endm.cells = [endpos]
+			endm.header.frame_id = 'map'
+			goal_pub.publish(end)
 			closedset = []
 			openset = []
 			parents = dict()
@@ -279,21 +304,15 @@ if __name__ == '__main__':
 				visited = GridCells()
 				visited.cell_width = res
 				visited.cell_height = res
-				visited.cells = closedset
+				visited.cells = map(lambda x: Point(x.x*res, x.y*res, 0), closedset)
 				visited.header.frame_id = 'map'
 				visited_pub.publish(visited)
 				fringe = GridCells()
 				fringe.cell_height = res
 				fringe.cell_width = res
-				fringe.cells = [x[1] for x in openset]
+				fringe.cells = map(lambda x: Point(x.x*res, x.y*res, 0), [x[1] for x in openset])
 		                fringe.header.frame_id = 'map'
 				frontier_pub.publish(fringe)
-				startm = GridCells()
-				startm.cell_width = 1
-				startm.cell_height = 1
-				startm.cells = [start]
-				startm.header.frame_id = 'map'	
-				start_pub.publish(startm)
 			print 'A* Done'
 			regen_map = 0
 		else:

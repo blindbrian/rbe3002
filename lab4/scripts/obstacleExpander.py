@@ -12,7 +12,6 @@ def getNeighbors(msg, cell, factor):
 	for x in range(-factor, factor+1):
 		for y in range(-factor, factor+1):
 			test = cell + x + width*y
-			print "test: ", test
 			if test > 0 and test < width*height:
 				neighbors.append(msg.data[test])
 	return neighbors
@@ -45,7 +44,7 @@ if __name__ == '__main__':
 	
 	#Publishers
 	global expanded_map_pub
-	expanded_map_pub = rospy.Publisher(rospy.get_param('output_map_topic', '/expanded_map'), OccupancyGrid)
+	expanded_map_pub = rospy.Publisher(rospy.get_param('output_map_topic', '/expanded_map'), OccupancyGrid, latch=True)
 	
 	#Subscribers
 	global map_sub
