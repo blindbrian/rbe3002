@@ -2,35 +2,45 @@
 #RBE 3002 Lab 4
 #Authors: Brian Eccles, Adria Fung, Prateek Sahay
 #This is a simple node that performs obstacle expansion on map
+import rospy, math
+from nav_msgs.msg import OccupancyGrid
 
-def getNeighbors(map, cell, factor):
-	width = map.info.width
-	height = map.info.height
-	neighhbors = []
-	for (x in range(0, factor):
-		neighbors.append(map.data[cell
-	
+def getNeighbors(msg, cell, factor):
+	width = msg.info.width
+	height = msg.info.height
+	neighbors = []
+	for x in range(-factor, factor+1):
+		for y in range(-factor, factor+1):
+			test = cell + x + width*y
+			print "test: ", test
+			if test > 0 and test < width*height:
+				neighbors.append(msg.data[test])
+	return neighbors
+
 
 #Incoming map message callback
 def mapCallback(msg):
+	print "Got map"
 	global expanded_map_pub
-	expansion_factor = math.ceil(rospy.get_param('expand_by', 1)/msg.info.resolution)
+	expansion_factor = int(math.ceil(rospy.get_param('expand_by', 1)/msg.info.resolution))
+	print expansion_factor
 	height = msg.info.height
-	width = msg.info width
+	width = msg.info.width
 	new_map = OccupancyGrid()
-	new_map.info = map.info
+	new_map.info = msg.info
+	new_map.data = [0 for x in range(width*height)]
 	for cell in range(0, width*height):
-		if (msg.data[cell] > 50)
-			new_map.data[cell] = 100
-		else
-			for n in getNeighbors(msg, cell):
-				if (n > 
-		
+		for n in getNeighbors(msg, cell, expansion_factor):
+			if n > 50:
+				new_map.data[cell] = 100
+				break
+	print 'Publishing new map'
 	expanded_map_pub.publish(new_map)
 
 
 if __name__ == '__main__':
 	#initialize ros node
+	print 'node started'
 	rospy.init_node('ObstacleExpander')
 	
 	#Publishers
@@ -43,3 +53,6 @@ if __name__ == '__main__':
 	
 	#Run until node shuts down
 	rospy.spin()
+
+
+
