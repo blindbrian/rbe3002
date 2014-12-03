@@ -4,6 +4,7 @@ from Queue import Queue
 from kobuki_msgs.msg import BumperEvent
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from nav_msgs.msg import GridCells
 # Add additional imports for each of the message types used
 
 #This function queues commands to execute the trajector defined in Lab 2
@@ -78,6 +79,7 @@ def read_odometry(msg):
 	global lastX
 	global lastY
 	global lastTh
+	global stop
 	#standby mode is entered whenever a command finishes
 	if standby:
 		#pull the next command off the queue if one is available
@@ -111,7 +113,7 @@ def read_odometry(msg):
 		#maintain the command's wheels speed
 		spinWheels(action[0], action[1], 0)
 		#wait for desired delta distance or angle
-		if (action[3] == 0 and deltaDist >= action[2]) or (action[2] == 0 and math.fabs(deltaAng) >= math.fabs(action[3])):
+		if (stop or action[3] == 0 and deltaDist >= action[2]) or (action[2] == 0 and math.fabs(deltaAng) >= math.fabs(action[3])):
 			#Stop the robot and enter standby to wait for next command
 			spinWheels(0,0,0)
 			standby = 1
@@ -128,6 +130,30 @@ def readBumper(msg):
     if (msg.state == 1):
 	executeTrajectory()
 
+#Path received callback
+#param msg: GridCells message indicating a path to travel	
+def readPath(msg):
+	global actionqueue
+	global stop
+	global lastX
+	global lastY
+	global lastTh
+	while not actionqeue.empty():
+		actionqueue.get()
+	stop = 1
+	path = msg.cells
+	x = lastX
+	y = lastY
+	th = lastTh
+	for p in path:
+		d = math.sqrt((p.x-x)**2+(p.y-y)**2)
+		a = atan2(p.y-y, p.x-x)
+		rotate(a-th)
+		driveStraight(d, 0.25)
+		x = p.x
+		y = p.y
+		th = a
+
 
 
 # This is the program's main function
@@ -138,6 +164,7 @@ if __name__ == '__main__':
     # These are global variables. Write "global <variable_name>" in any other function
     #  to gain access to these global variables    
     global teleop_pub
+    global waypoint_sub
     global pose
     global odom_tf
     global odom_list
@@ -154,6 +181,7 @@ if __name__ == '__main__':
     teleop_pub = rospy.Publisher(rospy.get_param('drive_output_topic', '/cmd_vel_mux/input/teleop'), Twist) # Publisher for commanding robot motion
     odom_sub = rospy.Subscriber(rospy.get_param('odometry_input_topic', '/odom'), Odometry, read_odometry, queue_size=1) # Callback function to read in robot Odometry messages
     bumper_sub = rospy.Subscriber('/mobile_base/events/bumper', BumperEvent, readBumper, queue_size=1) # Callback function to handle bumper events
+    waypoint_sub = rospy.Subscriber(rospy.get_param('waypoint_topic', '/lab4/astar/way'), GridCells, readPath, queue_size=10)
 
     print "Starting Lab 2"
     

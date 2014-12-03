@@ -5,6 +5,7 @@ import rospy, math
 from Queue import PriorityQueue
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import GridCells
+from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Point
@@ -32,51 +33,57 @@ def newStartCallback(msg):
 	global regen_map
 	global start_pub
 	global has_start
-	#extract point from message
-	point = msg.pose.pose.position
-	print 'Got new starting position, regenerating path'
-	#round point values to nearest integer
-	startpos = point;
-	print "x: ", startpos.x
-	print "y: ", startpos.y
-	#send rounded start point as a GridCells message to /lab3/astar/start
-	start = GridCells()
-	start.cell_width = 0.1
-	start.cell_height = 0.1
-	start.cells = [startpos]
-	start.header.frame_id = 'map'
-	start_pub.publish(start)
-	#trigger A* path regeneration
-	regen_map = 1
-	#indicate that we have receive a start position
-	has_start = 1
+	global curmap
+	global has_map
+	if (has_map):
+		#extract point from message
+		point = msg.pose.pose.position
+		print 'Got new starting position, regenerating path'
+		#round point values to nearest integer
+		startpos = point;
+		print "x: ", startpos.x
+		print "y: ", startpos.y
+		#send rounded start point as a GridCells message to /lab3/astar/start
+		start = GridCells()
+		start.cell_width = curmap.info.resolution
+		start.cell_height = curmap.info.resolution
+		start.cells = [mapToWorldPos(curmap, worldToMapCell(curmap, startpos))]
+		start.header.frame_id = 'map'
+		start_pub.publish(start)
+		#trigger A* path regeneration
+		regen_map = 1
+		#indicate that we have receive a start position
+		has_start = 1
 
 #Callback for goal point messages
 #param msg: Income message of type geometry_msgs/PoseStamped
 #returns: nothing
 def newGoalCallback(msg):
 	global endpos
-	global regen_msg
+	global regen_map
 	global goal_pub	
 	global has_goal	
-	#extract point from message
-	point = msg.pose.position
-	print 'Got new gloal position, regenerating map'
-	#round point values to nearest integer
-	endpos = point; 
-	print "x: ", endpos.x
-	print "y: ", endpos.y	
-	#send rounded goal point as a GridCells message to /lab3/astar/goal
-	end = GridCells()
-	end.cell_width = 0.1
-	end.cell_height = 0.1
-	end.cells = [endpos]
-	end.header.frame_id = 'map'
-	goal_pub.publish(end)
-	#trigger A* path regeneration
-	regen_map = 1
-	#indicate that we have received a goal position
-	has_goal = 1
+	global curmap
+	global has_map
+	if (has_map):
+		#extract point from message
+		point = msg.pose.position
+		print 'Got new gloal position, regenerating map'
+		#round point values to nearest integer
+		endpos = point; 
+		print "x: ", endpos.x
+		print "y: ", endpos.y	
+		#send rounded goal point as a GridCells message to /lab3/astar/goal
+		end = GridCells()
+		end.cell_width = curmap.info.resolution
+		end.cell_height = curmap.info.resolution
+		end.cells = [mapToWorldPos(curmap, worldToMapCell(curmap, endpos))]
+		end.header.frame_id = 'map'
+		goal_pub.publish(end)
+		#trigger A* path regeneration
+		regen_map = 1
+		#indicate that we have received a goal position
+		has_goal = 1
     
 #A* Heursitic function
 #param p1: current position
@@ -91,7 +98,7 @@ def heuristic(p1, p2):
 #param start: start position
 #param width: width of map (for normalizing points)
 #returns: nothing
-def generatePath(goal, parents, start, width):
+def generatePath(cmap, goal, parents, start, width):
 	global path_pub
 	global way_pub
 	global curmap
@@ -104,21 +111,21 @@ def generatePath(goal, parents, start, width):
 	way.cell_width = curmap.info.resolution
 	way.cell_height = curmap.info.resolution
 	way.header.frame_id = 'map'
-	waycells = [start]
+	waycells = []
 	#Create a list of cells starting with the start position
-	cells = [start]
+	cells = [mapToWorldPos(cmap, start)]
 	#trace path from goal back to start
 	current = goal
 	last_ang = 0
 	ang = 0
 	lastpt = goal
 	while current != start:
-	    cells.append(current)
+	    cells.append(mapToWorldPos(cmap, current))
 	    #if we change travel direction, add a waypoint
 	    if (heuristic(lastpt,current) != 0):
 	    	ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
 	    if (abs(ang-last_ang) > 0.1):
-		waycells.append(lastpt)
+		waycells.append(mapToWorldPos(cmap, lastpt))
 	    last_ang = ang
 	    lastpt = current
 	    current = parents[normalize(current, width)]
@@ -173,12 +180,20 @@ def normalize(point, width):
 	return int(round(point.y*width+point.x))
 
 #takes a map and a floating point position in the world and returns the map cell the position is in	
-def worldToMapCell(curmap, point)
-	pass
+def worldToMapCell(curmap, point):
+	res = curmap.info.resolution
+	ret = Point()
+	ret.x = int((point.x - curmap.info.origin.position.x)/res) 
+	ret.y = int((point.y - curmap.info.origin.position.y)/res)
+	return ret
 
 #takes a map cell and returns the center of the cell in world coordinates
-def mapToWorldPos(curmap, point)
-	pass
+def mapToWorldPos(curmap, point):
+	res = curmap.info.resolution
+	ret = Point()
+	ret.x = ((point.x*res) + curmap.info.origin.position.x) + (res/2);
+	ret.y = ((point.y*res) + curmap.info.origin.position.y) + (res/2);
+	return ret
 
 #Main Function
 if __name__ == '__main__':
@@ -240,28 +255,12 @@ if __name__ == '__main__':
 			path.cell_height = 1
 			path.header.frame_id = 'map'
 			path_pub.publish(path)
-			start = startpos
-			goal = endpos
-			astarmap = curmap.data
+			astarmap = curmap
 			mapheight = curmap.info.height
 			mapwidth = curmap.info.width
+			start = worldToMapCell(astarmap, startpos)
+			goal = worldToMapCell(astarmap, endpos)
 			res = curmap.info.resolution
-			start.x = round(start.x/res, 0)
-			start.y = round(start.y/res, 0)
-			goal.x = round(goal.x/res, 0)
-			goal.y = round(goal.y/res, 0)
-			startm = GridCells()
-			startm.cell_width = res
-			startm.cell_height = res
-			startm.cells = [start]
-			startm.header.frame_id = 'map'
-			start_pub.publish(start)
-			endm = GridCells()
-			endm.cell_width = res
-			endm.cell_height = res
-			endm.cells = [endpos]
-			endm.header.frame_id = 'map'
-			goal_pub.publish(end)
 			closedset = []
 			openset = []
 			parents = dict()
@@ -278,12 +277,12 @@ if __name__ == '__main__':
 				current = current_tup[1]
 				#check if we've reached the goal
 				if current == goal:
-					generatePath(goal, parents, start, mapwidth)		
+					generatePath(astarmap, goal, parents, start, mapwidth)		
 					break
 				#mark current as visited
 				closedset.append(current)
 				#iterate through all neighbors of currrent
-				for n in neighbors(current, mapwidth, mapheight, astarmap):
+				for n in neighbors(current, mapwidth, mapheight, astarmap.data):
 					#calculate each neighbors g and f score
 					c_g_score = g_scores[normalize(current, mapwidth)] + heuristic(current, n)
 					c_f_score = c_g_score + heuristic(n, goal)
@@ -304,13 +303,13 @@ if __name__ == '__main__':
 				visited = GridCells()
 				visited.cell_width = res
 				visited.cell_height = res
-				visited.cells = map(lambda x: Point(x.x*res, x.y*res, 0), closedset)
+				visited.cells = map(lambda x: mapToWorldPos(astarmap, x), closedset)
 				visited.header.frame_id = 'map'
 				visited_pub.publish(visited)
 				fringe = GridCells()
 				fringe.cell_height = res
 				fringe.cell_width = res
-				fringe.cells = map(lambda x: Point(x.x*res, x.y*res, 0), [x[1] for x in openset])
+				fringe.cells = map(lambda x: mapToWorldPos(astarmap, x), [x[1] for x in openset])
 		                fringe.header.frame_id = 'map'
 				frontier_pub.publish(fringe)
 			print 'A* Done'
