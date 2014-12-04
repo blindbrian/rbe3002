@@ -6,6 +6,7 @@ from Queue import PriorityQueue
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import GridCells
 from nav_msgs.msg import Path
+from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Point
@@ -24,6 +25,23 @@ def mapCallback(msg):
 	regen_map = 1
 	#indicate that we have received a map
 	has_map = 1
+	
+def odomCallback(msg):
+	global startpos
+	global has_start
+	global start_pub
+	global has_map
+	global curmap
+	global has_start
+	if (has_map and not has_start == 2):
+		startpos = msg.pose.pose.position		
+		start = GridCells()
+		start.cell_width = curmap.info.resolution
+		start.cell_height = curmap.info.resolution
+		start.cells = [mapToWorldPos(curmap, worldToMapCell(curmap, startpos))]
+		start.header.frame_id = 'map'
+		start_pub.publish(start)
+		has_start = 1
 	
 #Callback for start point messages
 #param msg: Income message of type geometry_msgs/PoseWithCovarianceStamped
@@ -53,7 +71,7 @@ def newStartCallback(msg):
 		#trigger A* path regeneration
 		regen_map = 1
 		#indicate that we have receive a start position
-		has_start = 1
+		has_start = 2
 
 #Callback for goal point messages
 #param msg: Income message of type geometry_msgs/PoseStamped
@@ -85,6 +103,31 @@ def newGoalCallback(msg):
 		#indicate that we have received a goal position
 		has_goal = 1
     
+def costmapCallback(msg):
+	global costmap
+	costmap = msg
+	
+def heuristicEC(cmap, p1, p2):
+	global costmap
+	res = costmap.info.res
+	deflection_factor = (2*res)/100
+	p1w = mapToWorldPos(cmap, p1)
+	p2w = mapToWorldPos(cmap, p2)
+	dx = p2w.x - p1w.x
+	dy = p2w.y - p1w.y
+	inc = max(dx, dy)/res
+	sx = dx/inc
+	sy = dy/inc
+	total = heuristic(p1, p2)
+	p = Point()
+	for i in range(1, inc):
+		p.x = sx*i
+		p.y = sy*i
+		cp = worldToMapCell(costmap, p)
+		ci = normalize(cp, costmap.info.width)
+		total += deflection_factor*costmap.data[ci]
+	return total
+    
 #A* Heursitic function
 #param p1: current position
 #param p2: goal position
@@ -111,26 +154,24 @@ def generatePath(cmap, goal, parents, start, width):
 	way.cell_width = curmap.info.resolution
 	way.cell_height = curmap.info.resolution
 	way.header.frame_id = 'map'
-	waycells = []
+	waycells = [mapToWorldPos(cmap, goal)]
 	#Create a list of cells starting with the start position
 	cells = [mapToWorldPos(cmap, start)]
 	#trace path from goal back to start
-	current = goal
-	last_ang = 0
-	ang = 0
+	current = parents[normalize(goal, width)]
 	lastpt = goal
+	last_ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
 	while current != start:
 	    cells.append(mapToWorldPos(cmap, current))
 	    #if we change travel direction, add a waypoint
-	    if (heuristic(lastpt,current) != 0):
-	    	ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
+	    ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
 	    if (abs(ang-last_ang) > 0.1):
 		waycells.append(mapToWorldPos(cmap, lastpt))
 	    last_ang = ang
 	    lastpt = current
 	    current = parents[normalize(current, width)]
 	path.cells = cells
-	way.cells = waycells
+	way.cells = list(reversed(waycells))
 	path_pub.publish(path)
 	way_pub.publish(way)
 
@@ -144,19 +185,19 @@ def neighbors(current, width, height, astarmap):
 	n = list()
 	if current.x > 0 and astarmap[int(round(current.y*width + current.x-1))] < 50:
 		n.append(Point(current.x-1, current.y, 0))
-	if current.x <= width and astarmap[int(round(current.y*width + current.x+1))] < 50:
+	if current.x < width and astarmap[int(round(current.y*width + current.x+1))] < 50:
 		n.append(Point(current.x+1, current.y, 0))
 	if current.y > 0 and astarmap[int(round((current.y-1)*width + current.x))] < 50:
 		n.append(Point(current.x, current.y-1, 0))
-	if current.y <= height and astarmap[int(round((current.y+1)*width + current.x))] < 50:
+	if current.y < height and astarmap[int(round((current.y+1)*width + current.x))] < 50:
 		n.append(Point(current.x, current.y+1, 0))
-	if current.y > 0 and current.x <= height and astarmap[int(round((current.y-1)*width + current.x+1))] < 50:
+	if current.y > 0 and current.x < height and astarmap[int(round((current.y-1)*width + current.x+1))] < 50:
 		n.append(Point(current.x+1, current.y-1, 0))
-	if current.y <= height and current.x > 0 and astarmap[int(round((current.y+1)*width + current.x-1))] < 50:
+	if current.y < height and current.x > 0 and astarmap[int(round((current.y+1)*width + current.x-1))] < 50:
 		n.append(Point(current.x-1, current.y+1, 0))
 	if current.y > 0 and current.x > 0 and astarmap[int(round((current.y-1)*width + current.x-1))] < 50:
 		n.append(Point(current.x-1, current.y-1, 0))
-	if current.y <= height and current.x <= height and astarmap[int(round((current.y+1)*width + current.x+1))] < 50:
+	if current.y < height and current.x < height and astarmap[int(round((current.y+1)*width + current.x+1))] < 50:
 		n.append(Point(current.x+1, current.y+1, 0))
 	return n
 
@@ -208,6 +249,7 @@ if __name__ == '__main__':
 	global has_map
 	global has_start
 	global has_goal
+	global costmap
 	has_map = 0
 	has_start = 0
 	has_goal = 0
@@ -230,9 +272,13 @@ if __name__ == '__main__':
 	global map_sub
 	global poseco_sub
 	global pose_sub
+	global odom_sub
+	global costmap_sub
 	map_sub = rospy.Subscriber(rospy.get_param('map_input_topic', '/map'), OccupancyGrid, mapCallback, queue_size=10)
 	poseco_sub = rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, newStartCallback, queue_size=10)
 	pose_sub = rospy.Subscriber('/move_base_simple/goal', PoseStamped, newGoalCallback, queue_size=10)
+	odom_sub = rospy.Subscriber('/odom', Odometry, odomCallback, queue_size=10)
+	costmap_sub = rospy.Subscriber('/move_base/global_costmap/costmap', OccupancyGrid, costmapCallback, queue_size=10)
 
 	#setup complete
 	print 'Lab3 node setup complete, waiting for map, start and goal'
@@ -260,58 +306,59 @@ if __name__ == '__main__':
 			mapwidth = curmap.info.width
 			start = worldToMapCell(astarmap, startpos)
 			goal = worldToMapCell(astarmap, endpos)
-			res = curmap.info.resolution
-			closedset = []
-			openset = []
-			parents = dict()
-			g_scores = dict()
-			f_scores = dict()
-			g_scores[normalize(start, mapwidth)] = 0
-			f_scores[normalize(start, mapwidth)] = heuristic(start, goal)
-			parents[normalize(start, mapwidth)] = None
-			openset.append((f_scores[normalize(start, mapwidth)], start))
-			while len(openset) > 0: #continue until there is nothing left on the fringe
-				#find the position on the fringe with the lowest f_score and pull it off
-				current_tup = getLowest(openset)
-				openset.remove(current_tup)
-				current = current_tup[1]
-				#check if we've reached the goal
-				if current == goal:
-					generatePath(astarmap, goal, parents, start, mapwidth)		
-					break
-				#mark current as visited
-				closedset.append(current)
-				#iterate through all neighbors of currrent
-				for n in neighbors(current, mapwidth, mapheight, astarmap.data):
-					#calculate each neighbors g and f score
-					c_g_score = g_scores[normalize(current, mapwidth)] + heuristic(current, n)
-					c_f_score = c_g_score + heuristic(n, goal)
-					#skip it if it has been visited and we havn't found a faster path
-					if n in closedset and c_f_score >= f_scores[normalize(n, mapwidth)]:
-						continue
-					if not n in (x[1] for x in openset): #if it hasn't been visited
-						#take down its g and f scores and parent, then add it to the fringe
-						parents[normalize(n, mapwidth)] = current
-						g_scores[normalize(n, mapwidth)] = c_g_score
-						f_scores[normalize(n, mapwidth)] = c_f_score
-						openset.append((c_f_score, n))
-					elif c_f_score < f_scores[normalize(n, mapwidth)]: #its already on the fringe and this path is faster, update its scores and parent
-						parents[normalize(n, mapwidth)] = current
-						g_scores[normalize(n, mapwidth)] = c_g_score
-						f_scores[normalize(n, mapwidth)] = c_f_score
-				#send visulaization data to rviz
-				visited = GridCells()
-				visited.cell_width = res
-				visited.cell_height = res
-				visited.cells = map(lambda x: mapToWorldPos(astarmap, x), closedset)
-				visited.header.frame_id = 'map'
-				visited_pub.publish(visited)
-				fringe = GridCells()
-				fringe.cell_height = res
-				fringe.cell_width = res
-				fringe.cells = map(lambda x: mapToWorldPos(astarmap, x), [x[1] for x in openset])
-		                fringe.header.frame_id = 'map'
-				frontier_pub.publish(fringe)
+			if (not start == goal):
+				res = curmap.info.resolution
+				closedset = []
+				openset = []
+				parents = dict()
+				g_scores = dict()
+				f_scores = dict()
+				g_scores[normalize(start, mapwidth)] = 0
+				f_scores[normalize(start, mapwidth)] = heuristic(start, goal)
+				parents[normalize(start, mapwidth)] = None
+				openset.append((f_scores[normalize(start, mapwidth)], start))
+				while len(openset) > 0: #continue until there is nothing left on the fringe
+					#find the position on the fringe with the lowest f_score and pull it off
+					current_tup = getLowest(openset)
+					openset.remove(current_tup)
+					current = current_tup[1]
+					#check if we've reached the goal
+					if current == goal:
+						generatePath(astarmap, goal, parents, start, mapwidth)		
+						break
+					#mark current as visited
+					closedset.append(current)
+					#iterate through all neighbors of currrent
+					for n in neighbors(current, mapwidth, mapheight, astarmap.data):
+						#calculate each neighbors g and f score
+						c_g_score = g_scores[normalize(current, mapwidth)] + heuristic(current, n)
+						c_f_score = c_g_score + heuristic(n, goal)
+						#skip it if it has been visited and we havn't found a faster path
+						if n in closedset and c_f_score >= f_scores[normalize(n, mapwidth)]:
+							continue
+						if not n in (x[1] for x in openset): #if it hasn't been visited
+							#take down its g and f scores and parent, then add it to the fringe
+							parents[normalize(n, mapwidth)] = current
+							g_scores[normalize(n, mapwidth)] = c_g_score
+							f_scores[normalize(n, mapwidth)] = c_f_score
+							openset.append((c_f_score, n))
+						elif c_f_score < f_scores[normalize(n, mapwidth)]: #its already on the fringe and this path is faster, update its scores and parent
+							parents[normalize(n, mapwidth)] = current
+							g_scores[normalize(n, mapwidth)] = c_g_score
+							f_scores[normalize(n, mapwidth)] = c_f_score
+					#send visulaization data to rviz
+					visited = GridCells()
+					visited.cell_width = res
+					visited.cell_height = res
+					visited.cells = map(lambda x: mapToWorldPos(astarmap, x), closedset)
+					visited.header.frame_id = 'map'
+					visited_pub.publish(visited)
+					fringe = GridCells()
+					fringe.cell_height = res
+					fringe.cell_width = res
+					fringe.cells = map(lambda x: mapToWorldPos(astarmap, x), [x[1] for x in openset])
+				        fringe.header.frame_id = 'map'
+					frontier_pub.publish(fringe)
 			print 'A* Done'
 			regen_map = 0
 		else:

@@ -29,6 +29,7 @@ def mapCallback(msg):
 	new_map.info = msg.info
 	new_map.data = [0 for x in range(width*height)]
 	for cell in range(0, width*height):
+		new_map.data[cell] = msg.data[cell]
 		for n in getNeighbors(msg, cell, expansion_factor):
 			if n > 50:
 				new_map.data[cell] = 100

@@ -3,6 +3,8 @@ import rospy, tf, math
 from Queue import Queue
 from kobuki_msgs.msg import BumperEvent
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from nav_msgs.msg import GridCells
 # Add additional imports for each of the message types used
@@ -10,9 +12,9 @@ from nav_msgs.msg import GridCells
 #This function queues commands to execute the trajector defined in Lab 2
 def executeTrajectory():
    	driveStraight(0.25, 0.6)
-	rotate(-math.pi/2)
+	rotate(0.25, -math.pi/2)
 	driveArc(-0.15, 0.25, math.pi)
-	rotate(3*math.pi/4)
+	rotate(0.25, 3*math.pi/4)
 	driveStraight(0.25, 0.42)
 
 
@@ -48,12 +50,12 @@ def driveStraight(speed, distance):
 #param angle: Angle to rotate through in radians (positive angles rotate counter-clockwise, negative angles rotate clockwise)
 #returns: nothing
 #note: Will rotate at ~2 radians per second
-def rotate(angle):
+def rotate(speed, angle):
     	global actionqueue
 	if angle > 0:
-		actionqueue.put((0.25, -0.25, 0, angle))
+		actionqueue.put((-speed, speed, 0, angle))
 	else:
-		actionqueue.put((-0.25, 0.25, 0, angle))
+		actionqueue.put((speed, -speed, 0, angle))
 
 
 ##Enqueues a command to drive in an arc with the given radius at the given speed and through the given angle
@@ -82,6 +84,9 @@ def read_odometry(msg):
 	global stop
 	#standby mode is entered whenever a command finishes
 	if standby:
+		lastX = msg.pose.pose.position.x
+		lastY = msg.pose.pose.position.y
+		lastTh = 2*math.asin(msg.pose.pose.orientation.z)
 		#pull the next command off the queue if one is available
 		if not actionqueue.empty():
 			#setup for the new command
@@ -90,9 +95,6 @@ def read_odometry(msg):
 			deltaDist = 0
 			deltaAng = 0
 			#pull current robot position and orientation from odometry message
-			lastX = msg.pose.pose.position.x
-			lastY = msg.pose.pose.position.y
-			lastTh = 2*math.asin(msg.pose.pose.orientation.z)
 			print 'Run command: ',  action
 	else: #execute active command 
 		#calculate delta distance traveld and angle change
@@ -100,7 +102,7 @@ def read_odometry(msg):
 		deltaY = msg.pose.pose.position.y - lastY
 		currTh = 2*math.asin(msg.pose.pose.orientation.z) 
 		#orientation provided by odomentry returns values from -pi to pi, this makes sure we don't add 2pi to the delta if that boundary is crossed
-		if (currTh/math.fabs(currTh) == lastTh/math.fabs(lastTh)):
+		if (currTh == 0 or lastTh == 0 or currTh/math.fabs(currTh) == lastTh/math.fabs(lastTh)):
 			deltaTh = currTh - lastTh
 		else:
 			deltaTh = 0
@@ -109,14 +111,14 @@ def read_odometry(msg):
 		lastX = msg.pose.pose.position.x
 		lastY = msg.pose.pose.position.y
 		lastTh = 2*math.asin(msg.pose.pose.orientation.z)
-		print deltaTh, ' ', deltaAng
 		#maintain the command's wheels speed
-		spinWheels(action[0], action[1], 0)
+		spinWheels(action[0], action[1])
 		#wait for desired delta distance or angle
 		if (stop or action[3] == 0 and deltaDist >= action[2]) or (action[2] == 0 and math.fabs(deltaAng) >= math.fabs(action[3])):
 			#Stop the robot and enter standby to wait for next command
-			spinWheels(0,0,0)
+			spinWheels(0,0)
 			standby = 1
+			stop = 0
 			print 'Command done'
 	
 	
@@ -128,28 +130,51 @@ def read_odometry(msg):
 def readBumper(msg):
     #execute the Lab2 trajectory if any bumper is pressed
     if (msg.state == 1):
-	executeTrajectory()
+	pass #executeTrajectory()
+	
+def newStartCallback(msg):
+	global startpos
+	global start_actual
+	start_actual = False
+	startpos = msg.pose.pose
+	
 
 #Path received callback
 #param msg: GridCells message indicating a path to travel	
 def readPath(msg):
+	global startpos
 	global actionqueue
 	global stop
 	global lastX
 	global lastY
 	global lastTh
-	while not actionqeue.empty():
+	global start_actual
+	global standby
+	while not actionqueue.empty():
 		actionqueue.get()
-	stop = 1
+	if not standby:
+		stop = 1
 	path = msg.cells
-	x = lastX
-	y = lastY
-	th = lastTh
+	if (start_actual):
+		x = lastX
+		y = lastY
+		th = lastTh
+	else:
+		x = startpos.position.x
+		y = startpos.position.y
+		th = 2*math.asin(startpos.orientation.z)
+	print "Current pos ", x, y, th
 	for p in path:
 		d = math.sqrt((p.x-x)**2+(p.y-y)**2)
-		a = atan2(p.y-y, p.x-x)
-		rotate(a-th)
-		driveStraight(d, 0.25)
+		a = math.atan2(p.y-y, p.x-x)
+		r = th-a
+		if (r > math.pi):
+			r = r-(2*math.pi)
+		if (r < -math.pi):
+			r = r+(2*math.pi)
+		print "Turn:", r, "Drive:", d
+		rotate(0.1, r)
+		driveStraight(0.05, d)
 		x = p.x
 		y = p.y
 		th = a
@@ -171,8 +196,18 @@ if __name__ == '__main__':
     global standby
     global actionqueue
     global lastTh
+    global lastX
+    global lastY
+    global startpos
+    global start_actual
+    global stop
+    start_actual = True
+    startpos = Pose()
+    lastX = 0
+    lastY = 0
     lastTh = 0
     standby = 1
+    stop = 0
     #actionqueue is a queue of actions
     #an action is a 4-tuple that represents a command
     #Format: (right_wheel_speed, left_wheel_speed, distance_to_travel, angle_to_travel_through)
@@ -181,7 +216,8 @@ if __name__ == '__main__':
     teleop_pub = rospy.Publisher(rospy.get_param('drive_output_topic', '/cmd_vel_mux/input/teleop'), Twist) # Publisher for commanding robot motion
     odom_sub = rospy.Subscriber(rospy.get_param('odometry_input_topic', '/odom'), Odometry, read_odometry, queue_size=1) # Callback function to read in robot Odometry messages
     bumper_sub = rospy.Subscriber('/mobile_base/events/bumper', BumperEvent, readBumper, queue_size=1) # Callback function to handle bumper events
-    waypoint_sub = rospy.Subscriber(rospy.get_param('waypoint_topic', '/lab4/astar/way'), GridCells, readPath, queue_size=10)
+    waypoint_sub = rospy.Subscriber(rospy.get_param('waypoint_topic', '/lab3/astar/way'), GridCells, readPath, queue_size=10)
+    startpos_sub = rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, newStartCallback, queue_size=10)
 
     print "Starting Lab 2"
     
