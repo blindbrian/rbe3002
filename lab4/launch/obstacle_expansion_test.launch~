@@ -1,0 +1,8 @@
+
+<launch>
+  <param name="input_map_topic" value="/map"/>
+  <param name="output_map_topic" value="/expanded_map"/>
+  <param name="expand_by" value="1"/>
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find lab3)/maps/simple_map.yaml"/>
+  <node name="ObstacleExpander" pkg="lab4" type="obstacleExpander.py"/>
+</launch>

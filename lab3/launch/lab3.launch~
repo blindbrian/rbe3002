@@ -1,0 +1,9 @@
+
+<launch>
+  <arg name="urdf_file" default="$(find xacro)/xacro.py '$(find turtlebot_description)/robots/kobuki_hexagons_kinect.urdf.xacro'" />
+  <param name="robot_description" command="$(arg urdf_file)" />
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find lab3)/maps/simple_map.yaml"/>
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find lab3)/rviz/lab3.rviz"/>
+  <node name="lab3" pkg="lab3" type="lab3.py"/>
+ 
+</launch>

@@ -1,0 +1,11 @@
+<launch>
+	 <node name="rviz" pkg="rviz" type="rviz" args="-d $(find lab3)/rviz/lab3.rviz"/>
+	 <param name="input_map_topic" value="/map"/>
+	 <param name="output_map_topic" value="/expanded_map"/>
+	 <param name="expand_by" value="0.4"/>
+	 <param name="map_input_topic" value="/map"/>
+	 <node name="ObstacleExpander" pkg="lab4" type="obstacleExpander.py"/>
+	 <node name="lab3" pkg="lab3" type="lab3.py"/>
+	 <node name="lab2" pkg="beccles_lab2" type="lab2.py"/>
+	
+</launch>

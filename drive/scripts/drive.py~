@@ -30,9 +30,18 @@ def spinWheels(u1, u2):
 #param speed: Speed to drive straight at in meters per second(max ~0.5)
 #param distance: Distance to drive in meters
 #returns: Nothing 
-def driveStraight(speed, distance):
-    	global actionqueue
-	actionqueue.put((speed, speed, distance, 0))    
+def driveStraight(speed, distance)
+	global currpose
+	sx = currpose.position.x
+	sy = currpose.position.y
+	cx = sx
+	cy = sy
+	spinWheels(speed, speed)
+	while (math.sqrt((cx-sx)**2+(cx-sx)**2) < distance)
+		cx = currpose.position.x
+		cy = currpose.position.y
+	spinWheels(0,0)
+	
 
     
 ##Enqueues a command to rotate the robot in place through a given angle
@@ -40,105 +49,41 @@ def driveStraight(speed, distance):
 #returns: nothing
 #note: Will rotate at ~2 radians per second
 def rotate(speed, angle):
-    	global actionqueue
-	if angle > 0:
-		actionqueue.put((-speed, speed, 0, angle))
+	global currpose
+	currTh = 2*math.asin(currpose.orientation.z)
+	r = currTh-angle
+	if (r > math.pi):
+		r = r-(2*math.pi)
+	if (r < -math.pi):
+		r = r+(2*math.pi)
+	if r > 0:
+		spinWheels(-speed, speed)
 	else:
-		actionqueue.put((speed, -speed, 0, angle))
+		spinWheels(speed, -speed)
+	while fabs(2*math.asin(currpose.orientation.z) - angle) > 0.1:
+		pass
+	spinWheels(0,0)
+		
 
 
 ##Turtlebot odometry message callback; executes enqueued driving commands
 #param msg: Message
 def read_odometry(msg): 
-	global standby
-	global actionqueue
-	global deltaAng
-	global deltaDist
-	global action
-	global lastX
-	global lastY
-	global lastTh
-	global stop
-	#standby mode is entered whenever a command finishes
-	if standby:
-		lastX = msg.pose.pose.position.x
-		lastY = msg.pose.pose.position.y
-		lastTh = 2*math.asin(msg.pose.pose.orientation.z)
-		#pull the next command off the queue if one is available
-		if not actionqueue.empty():
-			#setup for the new command
-			standby = 0
-			action = actionqueue.get()
-			deltaDist = 0
-			deltaAng = 0
-			#pull current robot position and orientation from odometry message
-			print 'Run command: ',  action
-	else: #execute active command 
-		#calculate delta distance traveld and angle change
-		deltaX = msg.pose.pose.position.x - lastX
-		deltaY = msg.pose.pose.position.y - lastY
-		currTh = 2*math.asin(msg.pose.pose.orientation.z) 
-		#orientation provided by odomentry returns values from -pi to pi, this makes sure we don't add 2pi to the delta if that boundary is crossed
-		if (currTh == 0 or lastTh == 0 or currTh/math.fabs(currTh) == lastTh/math.fabs(lastTh)):
-			deltaTh = currTh - lastTh
-		else:
-			deltaTh = 0
-		deltaDist = deltaDist + math.sqrt(deltaX*deltaX + deltaY*deltaY)
-		deltaAng = deltaAng + deltaTh
-		lastX = msg.pose.pose.position.x
-		lastY = msg.pose.pose.position.y
-		lastTh = 2*math.asin(msg.pose.pose.orientation.z)
-		#maintain the command's wheels speed
-		spinWheels(action[0], action[1])
-		#wait for desired delta distance or angle
-		if (stop or action[3] == 0 and deltaDist >= action[2]) or (action[2] == 0 and math.fabs(deltaAng) >= math.fabs(action[3])):
-			#Stop the robot and enter standby to wait for next command
-			spinWheels(0,0)
-			standby = 1
-			stop = 0
-			print 'Command done"
+	global currpose
+	currpose = msg.pose.pose
 
-	
 
-#Path received callback
-#param msg: GridCells message indicating a path to travel	
-def read_goal(msg):
-	global startpos
-	global actionqueue
-	global stop
-	global lastX
-	global lastY
-	global lastTh
-	global start_actual
-	global standby
-	while not actionqueue.empty():
-		actionqueue.get()
-	if not standby:
-		stop = 1
-	path = msg.cells
-	if (start_actual):
-		x = lastX
-		y = lastY
-		th = lastTh
-	else:
-		x = startpos.position.x
-		y = startpos.position.y
-		th = 2*math.asin(startpos.orientation.z)
-	print "Current pos ", x, y, th
-	for p in path:
-		d = math.sqrt((p.x-x)**2+(p.y-y)**2)
-		a = math.atan2(p.y-y, p.x-x)
-		r = th-a
-		if (r > math.pi):
-			r = r-(2*math.pi)
-		if (r < -math.pi):
-			r = r+(2*math.pi)
-		print "Turn:", r, "Drive:", d
-		rotate(0.1, r)
-		driveStraight(0.05, d)
-		x = p.x
-		y = p.y
-		th = a
+def goto(msg):
+	global currpose
+	cx = currpose.position.x
+	cy = currpose.position.y
+	gx = msg.pose.position.x
+	gy = msg.pose.position.y
+	gth = 2*math.asin(msg.pose.orientation.z)	
+	rotate(0.1, math.atan2(p.y-y, p.x-x))
+	driveStraight(0.1, math.sqrt((p.x-x)**2+(p.y-y)**2)
+	rotate(0.1, gth)
+	return GotoResponse()
 
 
 
@@ -150,40 +95,19 @@ if __name__ == '__main__':
     # These are global variables. Write "global <variable_name>" in any other function
     #  to gain access to these global variables    
     global teleop_pub
-    global pose
-    global odom_tf
-    global odom_list
-    global standby
-    global actionqueue
-    global lastTh
-    global lastX
-    global lastY
-    global startpos
-    global start_actual
-    global stop
-    start_actual = True
-    startpos = Pose()
-    lastX = 0
-    lastY = 0
-    lastTh = 0
-    standby = 1
-    stop = 0
-    #actionqueue is a queue of actions
-    #an action is a 4-tuple that represents a command
-    #Format: (right_wheel_speed, left_wheel_speed, distance_to_travel, angle_to_travel_through)
-    actionqueue = Queue()
+    global odom_sub
+    global goal_srv
+    global currpose
+    currpose = pose
 
     teleop_pub = rospy.Publisher(rospy.get_param('drive_output_topic', '/cmd_vel_mux/input/teleop'), Twist) # Publisher for commanding robot motion
     odom_sub = rospy.Subscriber(rospy.get_param('odometry_input_topic', '/odom'), Odometry, read_odometry, queue_size=1) # Callback function to read in robot Odometry messages
-    goal_sub = rospy.Subscriber(rospy.get_param('goal_input_topic', '/goal'), Pose, read_goal, queue_size=10)
+    goal_srv = rospy.Service(rospy.get_param('goto_service', '/goto'), Goto, goto)
 
-    print "Starting Drive Node"
-    
-    timer = Rate(100)
+    print "Starting Drive Node" 
     #main loop, wait for ros shutdown to exit
     while not rospy.is_shutdown():
-	
-	timer.sleep()
+	pass
 
     print "Exiting Drive Node"
     
