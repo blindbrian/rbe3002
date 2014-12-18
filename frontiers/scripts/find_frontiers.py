@@ -5,6 +5,8 @@ import rospy, math
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import GridCells
 from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point
 
 
 #takes a map and a floating point position in the world and returns the map cell the position is in	
@@ -42,13 +44,13 @@ def getNeighbors(current, inmap):
 		n.append(Point(current.x, current.y-1, 0))
 	if current.y < height:
 		n.append(Point(current.x, current.y+1, 0))
-	if current.y > 0 and current.x < height:
+	if current.y > 0 and current.x < width:
 		n.append(Point(current.x+1, current.y-1, 0))
 	if current.y < height and current.x > 0:
 		n.append(Point(current.x-1, current.y+1, 0))
 	if current.y > 0 and current.x > 0:
 		n.append(Point(current.x-1, current.y-1, 0))
-	if current.y < height and current.x < height:
+	if current.y < height and current.x < width:
 		n.append(Point(current.x+1, current.y+1, 0))
 	return n
 	
@@ -57,7 +59,7 @@ def isEdge(current, inmap):
 	height = inmap.info.height
 	astarmap = inmap.data
 	n = list()
-	val = astarmap[int(round(current.y*width + current.x-1))]
+	val = astarmap[normalize(current, width)]
 	if (val < 50 and val >= 0):
 		if current.x > 0 and astarmap[int(round(current.y*width + current.x-1))] == -1:
 			return 1
@@ -69,7 +71,7 @@ def isEdge(current, inmap):
 			return 4
 	return 0
 	
-def centroid(frontier)
+def centroid(cmap, frontier):
 	xc = 0
 	yc = 0
 	c = 0
@@ -77,20 +79,22 @@ def centroid(frontier)
 	for p in frontier:
 		xc = xc + p.x
 		yc = yc + p.y
-		co[p.z]++
-		c++
-	ch = co[2]-co[1]
-	cv = co[4]-co[3]
-	th = atan2(ch, cv)
-	p = Pose()
-	p.position = Point(xc/c, yc/c, 0)
-	p.orientation.z = sin(th/2)
+		co[p.z-1] += 1
+		c += 1
+	ch = co[1]-co[0]
+	cv = co[3]-co[2]
+	th = math.atan2(ch, cv)
+	p = PoseStamped()
+	p.pose.position = mapToWorldPos(cmap, Point(xc/c, yc/c, 0))
+	p.pose.orientation.z = math.sin(th/2)
 	return p
 
 
 def mapCallback(msg):
 	global frontier_pub
 	global viz_pub
+	print "Got Map"
+	time = rospy.get_time()
 	res = msg.info.resolution
 	width = msg.info.width
 	height = msg.info.height
@@ -99,40 +103,41 @@ def mapCallback(msg):
 	seen = []
 	for cell in range(width*height):
 		p = denormalize(cell, width)
-		if p not in seen:
+		if data[cell] > -1 and p not in seen:
 			seen.append(p)
 			val = isEdge(p, msg)
-			if (val):
+			if (val > 0):
 				stack = []
 				front = [Point(p.x,p.y,val)]
 				for n in getNeighbors(p, msg):
 					if n not in seen:				
 						val = isEdge(n, msg)
-						if (val):
+						if (val > 0):
 							stack.append(n)
 							front.append(Point(n.x, n.y, val))
-						seen.append[p]
+						seen.append(n)
 				while (len(stack) > 0):
 					np = stack.pop()
-					for n in getNeighbors(p, msg):
+					for n in getNeighbors(np, msg):
 						if n not in seen:				
 							val = isEdge(n, msg)
-							if (val):
+							if (val > 0):
 								stack.append(n)
 								front.append(Point(n.x, n.y, val))
-							seen.append(p)
+							seen.append(n)
 				frontiers.append(front)
-	centroids = map(centroid, frontiers)
+	centroids = map(lambda x: centroid(msg, x), frontiers)
 	resp = GridCells()
 	resp.cell_width = res
 	resp.cell_height = res
 	resp.header.frame_id = 'map'
-	resp.cells = map(lambda x: x.position, centroids)
-	viz_pub.publish(resp
-	frontier_pub.publish(centroids)
+	resp.cells = map(lambda x: x.pose.position, centroids)
+	viz_pub.publish(resp)
+	path = Path()
+	path.poses = centroids
+	frontier_pub.publish(path)
+	print "Time:", (rospy.get_time()-time)
 	
-	
-
 #Main Function
 if __name__ == '__main__':
 	#Initialize ROS Node
@@ -141,7 +146,7 @@ if __name__ == '__main__':
 	#Publishers
 	global frontier_pub
 	global viz_pub
-	frontier_pub = rospy.Publisher(rospy.get_param('frontier_output_topic', '/frontiers'), Path)
+	frontier_pub = rospy.Publisher(rospy.get_param('frontier_output_topic', '/frontiers'), Path, latch=True)
 	viz_pub = rospy.Publisher(rospy.get_param('frontier_viz_output_topic', 'visualization/frontiers'), GridCells)
 	
 	
@@ -150,11 +155,11 @@ if __name__ == '__main__':
 	map_sub = rospy.Subscriber(rospy.get_param('map_input_topic', '/map'), OccupancyGrid, mapCallback, queue_size=10)
 
 	#Setup Complete
-	print 'Lab3 node setup complete'
+	print 'Frontier finder node setup complete'
 	
 	#Loop Until Shutdown
 	while not rospy.is_shutdown():
 		pass
 	
 	#Exit Node
-	print 'Lab 3 node exiting'
+	print 'Frontier finder node exiting'

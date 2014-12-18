@@ -5,44 +5,66 @@ import rospy, math
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import GridCells
 from nav_msgs.msg import Odometry
-from drive.srv import Goto
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import Point
-from pathfinder.srv import GetPath
-from kobuki_msgs import ButtonEvent
-from kobuki_msgs import Sound
+from rbe_srvs.srv import GetPath
+from rbe_srvs.srv import Goto
+from kobuki_msgs.msg import ButtonEvent
+from kobuki_msgs.msg import Sound
 
+
+#Callback for receiving frontier messages
 def frontierCallback(msg):
 	global frontiers
-	frontiers = msg.cells
+	frontiers = msg.poses
 
+
+#Callback for receiving odometry messages
 def read_odometry(msg):
 	global currPos
 	currPos = msg.pose.pose
 
+
+#Callback for receiving turtlebot button events
 def read_button(msg):
 	global state
+	#Toggle running state when button 0 is pressed
 	if (msg.button == 0 and msg.state == 1):
 		if (state == 1):
+			print "Exiing SLAM"
 			state = 0
 		else:
+			print "Starting SLAM"
 			state = 1
 			
+#Find the closest frontier location and return it
 def findClosestFrontier():
 	global frontiers
-	global currPos
-	
-	max_d = math.sqrt((currPos.position.x-frontiers[0].position.x)**2 +(currPos.position.y-frontiers[0].position.y))
-	max_p = frontiers[0]
-	
+	global currPos	
+	#default to the first frontier in the list
+	max_d = math.sqrt((currPos.position.x-frontiers[0].pose.position.x)**2 +(currPos.position.y-frontiers[0].pose.position.y)**2)
+	max_p = frontiers[0]	
+	#find the closest frontier
 	for p in frontiers:
-		d = math.sqrt((currPos.position.x-p.position.x)**2 +(currPos.position.y-p.position.y))
+		d = math.sqrt((currPos.position.x-p.pose.position.x)**2 +(currPos.position.y-p.pose.position.y)**2)
 		if (d < max_d):
 			max_d = d
-			max_p = p
-			
+			max_p = p			
 	return max_p
+	
+#Return a pose 180 degrees oposite of the given pose
+def spin180(pose):
+	angle = 2*math.asin(pose.orientation.z)
+	if (angle > 0):
+		angle -= math.pi
+	else:
+		angle += math.pi+0.1 #add a little so it will spin in one direction
+	ret = Pose()
+	ret.position = pose.position
+	ret.orientation.z = math.sin(angle/2)
+	return ret
+	
 
 #Main Function
 if __name__ == '__main__':
@@ -51,6 +73,9 @@ if __name__ == '__main__':
 
 	#Setup globals
 	global frontiers
+	global state
+	global currPos
+	state = 0
 	
 	#Publishers
 	global sound_pub
@@ -62,7 +87,9 @@ if __name__ == '__main__':
 	global button_sub
 	frontier_sub = rospy.Subscriber(rospy.get_param('frontier_input_topic', '/frontiers'), Path, frontierCallback, queue_size = 10)
 	odom_sub = rospy.Subscriber(rospy.get_param('odometry_input_topic', '/odom'), Odometry, read_odometry, queue_size=1) 
-	button_sub = rospy.Subscriber(rospy.get_param('kobuki_button_input_topic', '/button'), ButtonEvent, read_button, queue_size=1)
+	button_sub = rospy.Subscriber(rospy.get_param('kobuki_button_input_topic', '/mobile_base/events/button'), ButtonEvent, read_button, queue_size=1)
+	
+	print "Waiting for services"
 
 	#Service proxies
 	global getpath_srv
@@ -81,11 +108,16 @@ if __name__ == '__main__':
 			if (len(frontiers) == 0):
 				state == 0
 				sound_pub.publish(6)
-			goal = findClosestFrontier()
-			path = getpath_srv(currPos, goal)
-			for p in path:
-				goto_srv(p)
-			rospy.sleep(3)
+			else:
+				goal = findClosestFrontier()
+				path = getpath_srv(currPos, goal.pose).path
+				if (len(path) > 0):
+					print 'waypoint'
+					goto_srv(path[0])
+				else:
+					print 'spin'
+					goto_srv(spin180(currPos))
+				rospy.sleep(5)
 	
 	#Exit Node
 	print 'SLAM node exiting'

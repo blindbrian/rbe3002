@@ -1,10 +1,12 @@
 #!/usr/bin/env python
-import rospy, tf, math 
+import rospy, math 
 from Queue import Queue
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Pose
 from nav_msgs.msg import Odometry
-from drive.srv import Goto
+from rbe_srvs.srv import Goto
+from rbe_srvs.srv import GotoResponse
+#from drive.srv import Goto
 # Add additional imports for each of the message types used
 
 
@@ -31,14 +33,15 @@ def spinWheels(u1, u2):
 #param speed: Speed to drive straight at in meters per second(max ~0.5)
 #param distance: Distance to drive in meters
 #returns: Nothing 
-def driveStraight(speed, distance)
+def driveStraight(speed, distance):
 	global currpose
 	sx = currpose.position.x
 	sy = currpose.position.y
 	cx = sx
 	cy = sy
 	spinWheels(speed, speed)
-	while (math.sqrt((cx-sx)**2+(cx-sx)**2) < distance)
+	while (math.sqrt((cx-sx)**2+(cy-sy)**2) < distance):
+		spinWheels(speed, speed)
 		cx = currpose.position.x
 		cy = currpose.position.y
 	spinWheels(0,0)
@@ -57,12 +60,11 @@ def rotate(speed, angle):
 		r = r-(2*math.pi)
 	if (r < -math.pi):
 		r = r+(2*math.pi)
-	if r > 0:
-		spinWheels(-speed, speed)
-	else:
-		spinWheels(speed, -speed)
-	while fabs(2*math.asin(currpose.orientation.z) - angle) > 0.1:
-		pass
+	while math.fabs(2*math.asin(currpose.orientation.z) - angle) > 0.1:
+		if r > 0:
+			spinWheels(-speed, speed)
+		else:
+			spinWheels(speed, -speed)
 	spinWheels(0,0)
 		
 
@@ -76,14 +78,23 @@ def read_odometry(msg):
 
 def goto(msg):
 	global currpose
+	print "Drive to:", msg.pose.position
+	print "Current:", currpose.position
 	cx = currpose.position.x
 	cy = currpose.position.y
 	gx = msg.pose.position.x
 	gy = msg.pose.position.y
-	gth = 2*math.asin(msg.pose.orientation.z)	
-	rotate(0.1, math.atan2(p.y-y, p.x-x))
-	driveStraight(0.1, math.sqrt((p.x-x)**2+(p.y-y)**2)
-	rotate(0.1, gth)
+	gth = 2*math.asin(msg.pose.orientation.z)
+	r = math.atan2(gy-cy, gx-cx) 
+	d = math.sqrt((gx-cx)**2+(gy-cy)**2)
+	print d, r
+	print 'r'
+	rotate(0.05, r)
+	print 'd'
+	driveStraight(0.1, d)
+	print 'r'
+	rotate(0.05, gth)
+	print 'done'
 	return GotoResponse()
 
 
@@ -99,7 +110,6 @@ if __name__ == '__main__':
     global odom_sub
     global goal_srv
     global currpose
-    currpose = pose
 
     teleop_pub = rospy.Publisher(rospy.get_param('drive_output_topic', '/cmd_vel_mux/input/teleop'), Twist) # Publisher for commanding robot motion
     odom_sub = rospy.Subscriber(rospy.get_param('odometry_input_topic', '/odom'), Odometry, read_odometry, queue_size=1) # Callback function to read in robot Odometry messages

@@ -9,7 +9,8 @@ from nav_msgs.msg import Path
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import Point
-from pathfinder.srv import GetPath
+from rbe_srvs.srv import GetPath
+from rbe_srvs.srv import GetPathResponse
 
 #Callback for map messages
 #param msg: Income message of type nav_msgs/OccupancyGrid
@@ -33,7 +34,7 @@ def heuristic(p1, p2):
 #param start: start position
 #param width: width of map (for normalizing points)
 #returns: nothing
-def generatePath(cmap, start, goal, parents)
+def generatePath(cmap, start, goal, parents):
 	global path_pub
 	global way_pub
 	global curmap
@@ -52,20 +53,20 @@ def generatePath(cmap, start, goal, parents)
 	#trace path from goal back to start
 	current = parents[normalize(goal, cmap.info.width)]
 	lastpt = goal
-	last_ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
-	ret = []
+	last_ang = math.atan2((lastpt.y-current.y),(lastpt.x-current.x))
 	p = Pose()
+	p.position = mapToWorldPos(cmap, goal)
+	p.orientation.z = 0
+	ret = [p]
 	while current != start:
 	    cells.append(mapToWorldPos(cmap, current))
 	    #if we change travel direction, add a waypoint
-	    ang = math.atan2((current.y-lastpt.y),(current.x-lastpt.x))
+	    ang = math.atan2((lastpt.y-current.y),(lastpt.x-current.x))
 	    if (abs(ang-last_ang) > 0.1):
 			waycells.append(mapToWorldPos(cmap, lastpt))
-			waycells.append(mapToWorldPos(cmap, lastpt))
-			p.position = mapToWorldPos(cmap, lastpt))
+			p.position = mapToWorldPos(cmap, lastpt)
 			p.orientation.z = math.sin(ang/2)
 			ret.append(p)
-			p = Pose()
 	    last_ang = ang
 	    lastpt = current
 	    current = parents[normalize(current, cmap.info.width)]
@@ -73,7 +74,9 @@ def generatePath(cmap, start, goal, parents)
 	way.cells = list(reversed(waycells))
 	path_pub.publish(path)
 	way_pub.publish(way)
-	return ret
+	resp = GetPathResponse()
+	resp.path = ret
+	return resp
 
 #Generates a list of neighbors for a given point
 #param current: current point
@@ -94,13 +97,13 @@ def neighbors(current, inmap):
 		n.append(Point(current.x, current.y-1, 0))
 	if current.y < height and astarmap[int(round((current.y+1)*width + current.x))] < 50:
 		n.append(Point(current.x, current.y+1, 0))
-	if current.y > 0 and current.x < height and astarmap[int(round((current.y-1)*width + current.x+1))] < 50:
+	if current.y > 0 and current.x < width and astarmap[int(round((current.y-1)*width + current.x+1))] < 50:
 		n.append(Point(current.x+1, current.y-1, 0))
 	if current.y < height and current.x > 0 and astarmap[int(round((current.y+1)*width + current.x-1))] < 50:
 		n.append(Point(current.x-1, current.y+1, 0))
 	if current.y > 0 and current.x > 0 and astarmap[int(round((current.y-1)*width + current.x-1))] < 50:
 		n.append(Point(current.x-1, current.y-1, 0))
-	if current.y < height and current.x < height and astarmap[int(round((current.y+1)*width + current.x+1))] < 50:
+	if current.y < height and current.x < width and astarmap[int(round((current.y+1)*width + current.x+1))] < 50:
 		n.append(Point(current.x+1, current.y+1, 0))
 	return n
 
@@ -141,6 +144,8 @@ def mapToWorldPos(curmap, point):
 	
 def getPath(msg):
 	global curmap
+	global frontier_pub
+	global visited_pub
 	StartPose = msg.start
 	GoalPose = msg.goal
 	InputMap = curmap
@@ -157,7 +162,7 @@ def getPath(msg):
 		f_scores = dict()
 		g_scores[normalize(StartCell, width)] = 0
 		f_scores[normalize(StartCell, width)] = heuristic(StartCell, GoalCell)
-		parents[normalize(start, mapwidth)] = None
+		parents[normalize(StartCell, width)] = None
 		openset.append((f_scores[normalize(StartCell, width)], StartCell))
 		while len(openset) > 0: #continue until there is nothing left on the fringe
 			#find the position on the fringe with the lowest f_score and pull it off
@@ -175,7 +180,7 @@ def getPath(msg):
 				c_g_score = g_scores[normalize(current, width)] + heuristic(current, n)
 				c_f_score = c_g_score + heuristic(n, GoalCell)
 				#skip it if it has been visited and we havn't found a faster path
-				if n in closedset and c_f_score >= f_scores[normalize(n, mapwidth)]:
+				if n in closedset and c_f_score >= f_scores[normalize(n, width)]:
 					continue
 				if not n in (x[1] for x in openset): #if it hasn't been visited
 					#take down its g and f scores and parent, then add it to the fringe
@@ -183,7 +188,7 @@ def getPath(msg):
 					g_scores[normalize(n, width)] = c_g_score
 					f_scores[normalize(n, width)] = c_f_score
 					openset.append((c_f_score, n))
-				elif c_f_score < f_scores[normalize(n, mapwidth)]: #its already on the fringe and this path is faster, update its scores and parent
+				elif c_f_score < f_scores[normalize(n, width)]: #its already on the fringe and this path is faster, update its scores and parent
 					parents[normalize(n, width)] = current
 					g_scores[normalize(n, width)] = c_g_score
 					f_scores[normalize(n, width)] = c_f_score
@@ -191,16 +196,16 @@ def getPath(msg):
 			visited = GridCells()
 			visited.cell_width = res
 			visited.cell_height = res
-			visited.cells = map(lambda x: mapToWorldPos(astarmap, x), closedset)
+			visited.cells = map(lambda x: mapToWorldPos(InputMap, x), closedset)
 			visited.header.frame_id = 'map'
 			visited_pub.publish(visited)
 			fringe = GridCells()
 			fringe.cell_height = res
 			fringe.cell_width = res
-			fringe.cells = map(lambda x: mapToWorldPos(astarmap, x), [x[1] for x in openset])
+			fringe.cells = map(lambda x: mapToWorldPos(InputMap, x), [x[1] for x in openset])
 			fringe.header.frame_id = 'map'
 			frontier_pub.publish(fringe)
-		return []
+	return []
 
 #Main Function
 if __name__ == '__main__':

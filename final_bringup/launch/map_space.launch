@@ -1,0 +1,14 @@
+<launch>
+	<param name="input_map_topic" value="/map"/>
+ 	<param name="output_map_topic" value="/expanded_map"/>
+ 	<param name="expand_by" value="0.2"/>
+ 	<param name="map_input_topic" value="/map"/>
+	<node pkg="drive" type="drive.py" name="drive"/>
+	<node pkg="frontiers" type="find_frontiers.py" name="find_frontiers"/>
+	<node pkg="pathfinder" type="pathfinder.py" name="pathfinder"/>
+	<node pkg="slam" type="slam.py" name="slam" output="screen"/>
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(find final_bringup)/rviz.rviz"/>
+	
+	<node name="ObstacleExpander" pkg="lab4" type="obstacleExpander.py"/>
+
+</launch>
